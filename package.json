@@ -1,0 +1,9 @@
+{
+    "name": "testproject",
+    "description": "",
+    "version": "0.1.0",
+  
+    "devDependencies": {
+      "serverless": "^2.72.3"
+    }
+}

@@ -1,0 +1,34 @@
+service: halogen-backoffice-script
+frameworkVersion: ">=2.10.0 <3.0.0"
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  profile: scriptUser
+  region: ap-southeast-1
+  environment:
+    bucketName: ${self:custom.bucketName}
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - s3:*
+      Resource: "*"  
+
+package:
+  individually: true        
+
+custom:
+  customVariable1: Hello, World!
+  bucketName: halogen-backoffice-script-serverlessdeploymentbuck-ylzwrvx10v52
+
+functions:
+
+  extractFiles:
+    runtime: provided.al2023
+    handler: ./bin/bootstrap
+    events:
+      - http:
+          path: /extractFiles
+          method: GET
+    package:
+      artifact: ./bin/bootstrap.zip
