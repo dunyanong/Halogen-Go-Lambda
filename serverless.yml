@@ -1,10 +1,10 @@
-service: halogen-backoffice-script
+service: halogen-backoffice-extract-script
 frameworkVersion: ">=2.10.0 <3.0.0"
 
 provider:
   name: aws
   runtime: nodejs18.x
-  profile: scriptUser
+  profile: extractFileProfile
   region: ap-southeast-1
   environment:
     bucketName: ${self:custom.bucketName}
@@ -15,7 +15,9 @@ provider:
       Resource: "*"  
 
 package:
-  individually: true        
+  individually: true
+  exclude:
+    - serverless/**       
 
 custom:
   customVariable1: Hello, World!
