@@ -11,8 +11,14 @@ provider:
   iamRoleStatements:
     - Effect: "Allow"
       Action:
-        - s3:*
-      Resource: "*"  
+        - s3:ListBucket
+      Resource: arn:aws:s3:::backoffice-script
+    - Effect: "Allow"
+      Action:
+        - s3:GetObject
+        - s3:PutObject
+        - s3:DeleteObject
+      Resource: arn:aws:s3:::backoffice-script/*  
 
 package:
   individually: true
@@ -21,10 +27,9 @@ package:
 
 custom:
   customVariable1: Hello, World!
-  bucketName: halogen-backoffice-script-serverlessdeploymentbuck-ylzwrvx10v52
+  bucketName: backoffice-script
 
 functions:
-
   extractFiles:
     runtime: provided.al2023
     handler: ./bin/bootstrap
