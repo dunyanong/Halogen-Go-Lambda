@@ -8,6 +8,7 @@ provider:
   region: ap-southeast-1
   environment:
     bucketName: ${self:custom.bucketName}
+    tableName: file-script
   iamRoleStatements:
     - Effect: "Allow"
       Action:
@@ -18,15 +19,17 @@ provider:
         - s3:GetObject
         - s3:PutObject
         - s3:DeleteObject
-      Resource: arn:aws:s3:::backoffice-script/*  
+      Resource: arn:aws:s3:::backoffice-script/*
+    - Effect: "Allow"
+      Action:
+        - dynamodb:Scan
+        - dynamodb:GetItem
+      Resource: arn:aws:dynamodb:${self:provider.region}:*:table/file-script
 
 package:
   individually: true
-  exclude:
-    - serverless/**       
 
 custom:
-  customVariable1: Hello, World!
   bucketName: backoffice-script
 
 functions:
