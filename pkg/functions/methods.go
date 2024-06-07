@@ -10,11 +10,75 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
+// GetLatestHashFilePair gets the latest hash and FileName pair from DynamoDB
+func GetLatestHashFilePair() (string, string, error) {
+	// Create a new AWS session with default configuration
+	sess, err := session.NewSession()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create AWS session: %w", err)
+	}
+
+	// Create a DynamoDB service client
+	svc := dynamodb.New(sess)
+
+	// Define the input parameters for the Scan operation
+	input := &dynamodb.ScanInput{
+		TableName: aws.String("file-script"),
+	}
+
+	// Scan the DynamoDB table
+	result, err := svc.Scan(input)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to scan DynamoDB table: %w", err)
+	}
+
+	if result == nil || result.Items == nil || len(result.Items) == 0 {
+		return "", "", fmt.Errorf("no items found in DynamoDB table")
+	}
+
+	// Assuming the items have a timestamp attribute for sorting
+	type Item struct {
+		Hash      string
+		FileName  string
+		Timestamp string
+	}
+	var items []Item
+	for _, i := range result.Items {
+		item := Item{
+			Hash:      *i["Hash"].S,
+			FileName:  *i["FileName"].S,
+			Timestamp: *i["Timestamp"].S,
+		}
+		items = append(items, item)
+	}
+
+	// Sort the items by Timestamp in descending order
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Timestamp > items[j].Timestamp
+	})
+
+	// Return the latest hash and filename
+	latestItem := items[0]
+	return latestItem.Hash, latestItem.FileName, nil
+}
+
 // ReadZipFileFromS3 reads the ZIP file from the specified S3 bucket and file name
 func ReadZipFileFromS3(bucketName, fileName string) ([]byte, error) {
+
+	// ERROR INDUCING CODE
+	// hash, fileName, err := GetLatestHashFilePair()
+	// if err != nil {
+	// 	fmt.Println("Error:", err)
+	// 	return nil, err
+	// }
+
+	// fmt.Println("Latest Hash:", hash)
+	// fmt.Println("Latest File Name:", fileName)
+
 	// Create a new AWS session with default configuration
 	sess, err := session.NewSession()
 	if err != nil {
