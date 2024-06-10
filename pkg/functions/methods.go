@@ -6,15 +6,24 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-// GetLatestHashFilePair gets the latest hash and FileName pair from DynamoDB
+// Item represents a record in DynamoDB
+type Item struct {
+	Hash      string `json:"hash"`
+	Filename  string `json:"filename"`
+	Timestamp string `json:"timestamp"`
+}
+
+// GetLatestHashFilePair gets the latest hash and filename pair from DynamoDB
 func GetLatestHashFilePair() (string, string, error) {
 	// Create a new AWS session with default configuration
 	sess, err := session.NewSession()
@@ -25,60 +34,42 @@ func GetLatestHashFilePair() (string, string, error) {
 	// Create a DynamoDB service client
 	svc := dynamodb.New(sess)
 
-	// Define the input parameters for the Scan operation
+	// Prepare the input parameters for the Scan request
 	input := &dynamodb.ScanInput{
 		TableName: aws.String("file-script"),
 	}
 
-	// Scan the DynamoDB table
+	// Scan the table
 	result, err := svc.Scan(input)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to scan DynamoDB table: %w", err)
 	}
 
-	if result == nil || result.Items == nil || len(result.Items) == 0 {
+	if len(result.Items) == 0 {
 		return "", "", fmt.Errorf("no items found in DynamoDB table")
 	}
 
-	// Assuming the items have a timestamp attribute for sorting
-	type Item struct {
-		Hash      string
-		FileName  string
-		Timestamp string
-	}
+	// Unmarshal the results into a slice of Item
 	var items []Item
-	for _, i := range result.Items {
-		item := Item{
-			Hash:      *i["Hash"].S,
-			FileName:  *i["FileName"].S,
-			Timestamp: *i["Timestamp"].S,
-		}
-		items = append(items, item)
+	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &items)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to unmarshal DynamoDB scan result: %w", err)
 	}
 
-	// Sort the items by Timestamp in descending order
+	// Sort the items by timestamp in descending order
 	sort.Slice(items, func(i, j int) bool {
-		return items[i].Timestamp > items[j].Timestamp
+		ti, _ := time.Parse(time.RFC3339, items[i].Timestamp)
+		tj, _ := time.Parse(time.RFC3339, items[j].Timestamp)
+		return ti.After(tj)
 	})
 
-	// Return the latest hash and filename
+	// Return the hash and filename of the latest item
 	latestItem := items[0]
-	return latestItem.Hash, latestItem.FileName, nil
+	return latestItem.Hash, latestItem.Filename, nil
 }
 
 // ReadZipFileFromS3 reads the ZIP file from the specified S3 bucket and file name
 func ReadZipFileFromS3(bucketName, fileName string) ([]byte, error) {
-
-	// ERROR INDUCING CODE
-	// hash, fileName, err := GetLatestHashFilePair()
-	// if err != nil {
-	// 	fmt.Println("Error:", err)
-	// 	return nil, err
-	// }
-
-	// fmt.Println("Latest Hash:", hash)
-	// fmt.Println("Latest File Name:", fileName)
-
 	// Create a new AWS session with default configuration
 	sess, err := session.NewSession()
 	if err != nil {
