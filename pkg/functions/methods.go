@@ -1,7 +1,6 @@
 package functions
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/base64"
 	"fmt"
@@ -27,7 +26,7 @@ type Item struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// GetLatestHashFilePairAndZip returns the latest hash and filename pair from DynamoDB and zips all files from S3
+// GetLatestHashFilePairAndZip returns the latest hash and filename pair from DynamoDB and fetches the zip file from S3
 func GetLatestHashFilePairAndZip(req *events.APIGatewayProxyRequest) (*events.APIGatewayProxyResponse, error) {
 	// Get bucket name from environment variable
 	bucketName := os.Getenv("bucketName")
@@ -50,27 +49,51 @@ func GetLatestHashFilePairAndZip(req *events.APIGatewayProxyRequest) (*events.AP
 		}, nil
 	}
 
-	// Initialize a buffer to store the zip file
-	var buf bytes.Buffer
-	zipWriter := zip.NewWriter(&buf)
-
-	// Get all objects recursively from S3 and add them to the zip
-	err = fetchAndZipObjects(bucketName, "", zipWriter)
+	// Construct the path to the zip file in the S3 bucket
+	zipFilePath := hash + "/"
+	zipFileName, err := getZipFileFromFolder(bucketName, zipFilePath)
 	if err != nil {
-		fmt.Printf("Error fetching and zipping objects: %s\n", err.Error())
+		fmt.Printf("Error fetching zip file from S3: %s\n", err.Error())
 		return &events.APIGatewayProxyResponse{
 			StatusCode: http.StatusInternalServerError,
-			Body:       "Error fetching and zipping objects: " + err.Error(),
+			Body:       "Error fetching zip file from S3: " + err.Error(),
 		}, nil
 	}
 
-	// Close the zip writer
-	err = zipWriter.Close()
+	// Get the zip file from S3
+	sess, err := session.NewSession()
 	if err != nil {
-		fmt.Printf("Error closing zip writer: %s\n", err.Error())
+		fmt.Printf("Failed to create AWS session: %s\n", err.Error())
 		return &events.APIGatewayProxyResponse{
 			StatusCode: http.StatusInternalServerError,
-			Body:       "Error closing zip writer: " + err.Error(),
+			Body:       "Failed to create AWS session: " + err.Error(),
+		}, nil
+	}
+
+	svc := s3.New(sess)
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(zipFilePath + zipFileName),
+	}
+
+	result, err := svc.GetObject(input)
+	if err != nil {
+		fmt.Printf("Failed to get object %s from S3: %s\n", zipFilePath+zipFileName, err.Error())
+		return &events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       "Failed to get object from S3: " + err.Error(),
+		}, nil
+	}
+	defer result.Body.Close()
+
+	// Read the zip file content
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, result.Body)
+	if err != nil {
+		fmt.Printf("Failed to read object content: %s\n", err.Error())
+		return &events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       "Failed to read object content: " + err.Error(),
 		}, nil
 	}
 
@@ -136,62 +159,34 @@ func GetLatestHashFilePair() (string, string, error) {
 	return latestItem.Hash, latestItem.Filename, nil
 }
 
-// Fetch and zip all objects in S3 recursively
-func fetchAndZipObjects(bucketName, prefix string, zipWriter *zip.Writer) error {
+// getZipFileFromFolder fetches the zip file from the specified S3 folder
+func getZipFileFromFolder(bucketName, folderPath string) (string, error) {
 	// Create a new AWS session with default configuration
 	sess, err := session.NewSession()
 	if err != nil {
-		return fmt.Errorf("failed to create AWS session: %w", err)
+		return "", fmt.Errorf("failed to create AWS session: %w", err)
 	}
 
 	// Create an S3 service client
 	svc := s3.New(sess)
 
-	// List objects in the bucket with the specified prefix
+	// List objects in the folder
 	listInput := &s3.ListObjectsV2Input{
-		Bucket:  aws.String(bucketName),
-		Prefix:  aws.String(prefix),
-		MaxKeys: aws.Int64(1000), // Adjust as per your requirements
+		Bucket: aws.String(bucketName),
+		Prefix: aws.String(folderPath),
 	}
 
 	listOutput, err := svc.ListObjectsV2(listInput)
 	if err != nil {
-		return fmt.Errorf("failed to list objects in S3 bucket: %w", err)
+		return "", fmt.Errorf("failed to list objects in S3 folder: %w", err)
 	}
 
+	// Find the zip file in the folder
 	for _, obj := range listOutput.Contents {
-		// Skip directories
-		if strings.HasSuffix(*obj.Key, "/") {
-			continue
-		}
-
-		// Extract the file name from the object key
-		fileName := strings.TrimPrefix(*obj.Key, prefix)
-
-		// Get the object from S3
-		input := &s3.GetObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    obj.Key,
-		}
-
-		result, err := svc.GetObject(input)
-		if err != nil {
-			return fmt.Errorf("failed to get object %s from S3: %w", *obj.Key, err)
-		}
-		defer result.Body.Close()
-
-		// Create a file in the zip writer with the relative path
-		zipFile, err := zipWriter.Create(fileName)
-		if err != nil {
-			return fmt.Errorf("failed to create file in zip: %w", err)
-		}
-
-		// Copy object content to the zip file
-		_, err = io.Copy(zipFile, result.Body)
-		if err != nil {
-			return fmt.Errorf("failed to copy object content to zip: %w", err)
+		if strings.HasSuffix(*obj.Key, ".zip") {
+			return strings.TrimPrefix(*obj.Key, folderPath), nil
 		}
 	}
 
-	return nil
+	return "", fmt.Errorf("no zip file found in folder: %s", folderPath)
 }
